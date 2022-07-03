@@ -8,9 +8,7 @@ import akka.http.scaladsl.server.Route
 import scala.util.Failure
 import scala.util.Success
 
-//#main-class
 object Application {
-  //#start-http-server
   private def startHttpServer(routes: Route)(implicit system: ActorSystem[_]): Unit = {
     import system.executionContext
 
@@ -25,8 +23,6 @@ object Application {
     }
   }
   def main(args: Array[String]): Unit = {
-    //#server-bootstrapping
-
     val rootBehavior = Behaviors.setup[Nothing] { context =>
       val baseUrl =  context.system.settings.config.getString("ticketing.app.base-url")
       val customerRegistryActor = context.spawn(CustomerRegistry(baseUrl), "UserRegistryActor")
@@ -35,8 +31,6 @@ object Application {
       startHttpServer(routes.customerRoutes)(context.system)
       Behaviors.empty
     }
-    val system = ActorSystem[Nothing](rootBehavior, "ZendeskTicketStreaming")
-    //#server-bootstrapping
+    ActorSystem[Nothing](rootBehavior, "ZendeskTicketStreaming")
   }
 }
-//#main-class

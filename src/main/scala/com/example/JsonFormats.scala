@@ -4,11 +4,10 @@ import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import com.example.CustomerRegistry.ActionPerformed
 import spray.json.{JsString, JsValue, JsonFormat, RootJsonFormat, deserializationError}
 
+import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
-import java.time.{LocalDate, LocalDateTime, OffsetDateTime}
 import scala.util.Try
 
-//#json-formats
 import spray.json.DefaultJsonProtocol
 
 object JsonFormats extends DefaultJsonProtocol with SprayJsonSupport {
@@ -36,7 +35,7 @@ object JsonFormats extends DefaultJsonProtocol with SprayJsonSupport {
   implicit val auditsJsonFormats: RootJsonFormat[Audits] = jsonFormat3(Audits)
 
   implicit val ticketJsonFormats: RootJsonFormat[Ticket] = jsonFormat3(Ticket)
-  implicit val ticketsJsonFormats: RootJsonFormat[Tickets] = jsonFormat4(Tickets)
+  implicit val ticketsJsonFormats: RootJsonFormat[Tickets] = jsonFormat5(Tickets)
 
   implicit val auditCountFormat: RootJsonFormat[AuditCount] = jsonFormat1(AuditCount)
 
@@ -55,4 +54,3 @@ object JsonFormats extends DefaultJsonProtocol with SprayJsonSupport {
     }
   }
 }
-//#json-formats

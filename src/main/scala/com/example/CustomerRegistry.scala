@@ -1,23 +1,17 @@
 package com.example
 
-//#user-registry-actor
-import akka.actor.typed.{ActorRef, Behavior, Scheduler}
+import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
-import com.example.TicketStream.{GetCurrentTimeLapse, Start}
+import akka.actor.typed.{ActorRef, Behavior, Scheduler}
+import com.example.TicketStream.Start
 
 import java.time.Duration
-import scala.collection.immutable
-import akka.actor.typed.scaladsl.AskPattern._
-
 import scala.concurrent.ExecutionContextExecutor
 
-//#user-case-classes
 final case class Customer(domain: String, token: String, startTime: Long)
-//#user-case-classes
 import akka.util.Timeout
 
 object CustomerRegistry {
-  import JsonFormats._
   sealed trait Command
   final case class CreateCustomer(user: Customer, replyTo: ActorRef[ActionPerformed]) extends Command
   final case class GetCustomerStream(domain: String, replyTo: ActorRef[GetCustomerStreamResponse]) extends Command
@@ -30,9 +24,9 @@ object CustomerRegistry {
 
 
 
-  def apply(baseUrl: String): Behavior[Command] = registry(baseUrl, Set.empty)
+  def apply(baseUrl: String): Behavior[Command] = registry(baseUrl)
 
-  private def registry(baseUrl: String, users: Set[Customer]): Behavior[Command] = {
+  private def registry(baseUrl: String): Behavior[Command] = {
     Behaviors.receive {(context, msg) =>
       implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("ticketing.routes.ask-timeout"))
       implicit val scheduler: Scheduler = context.system.scheduler
@@ -63,7 +57,7 @@ object CustomerRegistry {
               val res= actorRef.ask(TicketStream.GetCurrentTimeLapse)
               res.map {
                 case CurrentTimeLapse(time) =>
-                  replyTo ! ActionPerformed(s"time difference between the stream and real time is - ${time.abs().toMinutes}", true)
+                  replyTo ! ActionPerformed(s"time difference between the stream and real time is - ${time.abs().toMinutes} minutes", true)
                 case _ =>
                   replyTo ! ActionPerformed("Something went wrong while getting the time lapse", false)
               }

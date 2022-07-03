@@ -51,6 +51,9 @@ object TicketStream {
 
   def apply(baseUrl: String, customer: Customer): Behavior[Command] = handle(customer, baseUrl)
 
+  val auditUrl = "https://%s.%s/tickets/%s/audits.json?per_page=100"
+  val ticketsUrl = "https://%s.%s/incremental/tickets.json?start_time=%d&per_page=10"
+
   //TODO implement polling every 5 seconds
   def handle(customer: Customer, baseUrl: String): Behavior[Command] =
   Behaviors.receive{(context, msg) =>
@@ -69,16 +72,16 @@ object TicketStream {
               value match {
                 case Tickets(tickets, _, _, end_of_stream, currentStreamTime) =>
                   if(end_of_stream){
-                    context.self ! CreateStream(s"https://${customer.domain}.${baseUrl}/tickets/${tickets.head.id}/audits.json?per_page=100")
+                    context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id))
                   }
-                  context.self ! CurrentStreamTime(currentTimeStamp)
+                  context.self ! CurrentStreamTime(currentStreamTime)
                   Future(tickets)
                 case Audits(audits, _, _) =>
                   Future(audits)
                 case RateLimitRetryAfter(seconds, uri, Some(currentPageData)) =>
                   system.scheduler.scheduleOnce(FiniteDuration.apply(seconds, "seconds"), () => context.self ! CreateStream(uri))
                   Future(currentPageData.data)
-                case RateLimitRetryAfter(seconds, url, None) =>
+                case RateLimitRetryAfter(_, _, None) =>
                   Future(Seq.empty[ZendeskEntity])
                 case _ => Future(Seq.empty[ZendeskEntity])
               }
@@ -93,7 +96,7 @@ object TicketStream {
         context.self ! ProcessStream(source)
         Behaviors.same
       case Start =>
-        val uri = Uri(s"https://${customer.domain}.${baseUrl}/incremental/tickets.json?start_time=${customer.startTime}&per_page=10")
+        val uri = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime))
         context.self ! CreateStream(uri)
         Behaviors.same
       case CurrentStreamTime(time: Long) =>
@@ -103,6 +106,8 @@ object TicketStream {
         val streamTime = Instant.ofEpochSecond(currentTimeStamp)
         val durationBtw = Duration.between(streamTime, OffsetDateTime.now().toInstant)
         replyTo ! CurrentTimeLapse(durationBtw)
+        Behaviors.same
+      case _ =>
         Behaviors.same
     }
   }

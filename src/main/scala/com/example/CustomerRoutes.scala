@@ -10,28 +10,19 @@ import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.util.Timeout
-//#import-json-formats
-//#user-routes-class
-import spray.json._
+
 class CustomerRoutes(customerRegistry: ActorRef[CustomerRegistry.Command])(implicit val system: ActorSystem[_]) {
 
-  //#user-routes-class
-//  import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
   import JsonFormats._
-  //#import-json-formats
 
   // If ask takes more time than this to complete the request is failed
   private implicit val timeout = Timeout.create(system.settings.config.getDuration("ticketing.routes.ask-timeout"))
-//  def getUsers(): Future[Users] =
-//    userRegistry.ask(GetUsers)
-//  def getUser(name: String): Future[GetUserResponse] =
-//    userRegistry.ask(GetUser(name, _))
   def createCustomer(customer: Customer): Future[ActionPerformed] =
     customerRegistry.ask(CreateCustomer(customer, _))
 
-  //#all-routes
-  //#users-get-post
-  //#users-get-delete
+  def getCurrentTimeLapse(domain: String): Future[ActionPerformed] =
+    customerRegistry.ask(GetCurrentTimeLapse(domain, _))
+
   val customerRoutes: Route =
     path("customers") {
       post {
@@ -40,9 +31,10 @@ class CustomerRoutes(customerRegistry: ActorRef[CustomerRegistry.Command])(impli
             complete(StatusCodes.Created, performed)
           }
         }
-      } ~ get {
-
+      }
+    } ~ (path("customers" / Segment) & get){ domain =>
+      complete{
+        getCurrentTimeLapse(domain)
       }
     }
-  //#all-routes
 }
