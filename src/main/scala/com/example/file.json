@@ -1,0 +1,195 @@
+{
+  "tickets": [
+    {
+      "url": "https://d3v-kaizo.zendesk.com/api/v2/tickets/4480.json",
+      "id": 4480,
+      "external_id": null,
+      "via": {
+        "channel": "email",
+        "source": {
+          "from": {
+            "address": "artur@kaizo.com",
+            "name": "Artur Perun"
+          },
+          "to": {
+            "name": "Kaizo",
+            "address": "support@d3v-kaizo.zendesk.com"
+          },
+          "rel": null
+        }
+      },
+      "created_at": "2021-01-04T15:11:04Z",
+      "updated_at": "2021-01-04T17:03:16Z",
+      "type": null,
+      "subject": "test 1",
+      "raw_subject": "test 1",
+      "description": "[No content]",
+      "priority": null,
+      "status": "closed",
+      "recipient": "support@d3v-kaizo.zendesk.com",
+      "requester_id": 374169910900,
+      "submitter_id": 374169910900,
+      "assignee_id": 370241976960,
+      "organization_id": null,
+      "group_id": 360003262519,
+      "collaborator_ids": [],
+      "follower_ids": [],
+      "email_cc_ids": [],
+      "forum_topic_id": null,
+      "problem_id": null,
+      "has_incidents": false,
+      "is_public": true,
+      "due_at": null,
+      "tags": [],
+      "custom_fields": [
+        {
+          "id": 360015007579,
+          "value": "5"
+        },
+        {
+          "id": 360015007599,
+          "value": "5"
+        },
+        {
+          "id": 360015142600,
+          "value": null
+        },
+        {
+          "id": 360015110639,
+          "value": null
+        }
+      ],
+      "satisfaction_rating": {
+        "score": "good",
+        "id": 361768652559,
+        "comment": null,
+        "reason": "No reason provided",
+        "reason_id": 360001002260
+      },
+      "sharing_agreement_ids": [],
+      "fields": [
+        {
+          "id": 360015007579,
+          "value": "5"
+        },
+        {
+          "id": 360015007599,
+          "value": "5"
+        },
+        {
+          "id": 360015142600,
+          "value": null
+        },
+        {
+          "id": 360015110639,
+          "value": null
+        }
+      ],
+      "followup_ids": [
+        4483
+      ],
+      "ticket_form_id": 360000763199,
+      "brand_id": 360001393519,
+      "allow_channelback": false,
+      "allow_attachments": true,
+      "generated_timestamp": 1609779796
+    },
+    {
+      "url": "https://d3v-kaizo.zendesk.com/api/v2/tickets/4481.json",
+      "id": 4481,
+      "external_id": null,
+      "via": {
+        "channel": "voice",
+        "source": {
+          "rel": "voicemail",
+          "from": {
+            "formatted_phone": "+1 (602) 220-2269",
+            "phone": "+16022202269",
+            "name": "Caller +1 (602) 220-2269"
+          },
+          "to": {
+            "formatted_phone": "+1 (619) 639-9312",
+            "phone": "+16196399312",
+            "name": "Kaizo",
+            "brand_id": 360001393519
+          }
+        }
+      },
+      "created_at": "2021-01-07T16:36:51Z",
+      "updated_at": "2021-01-07T16:36:51Z",
+      "type": null,
+      "subject": "Voicemail from: Caller +1 (602) 220-2269",
+      "raw_subject": "Voicemail from: Caller +1 (602) 220-2269",
+      "description": "Call from: +1 (602) 220-2269\\nTime of call: January 7, 2021 at 4:36:11 PM",
+      "priority": null,
+      "status": "new",
+      "recipient": null,
+      "requester_id": 377604255940,
+      "submitter_id": 377604255940,
+      "assignee_id": null,
+      "organization_id": null,
+      "group_id": 360003262519,
+      "collaborator_ids": [],
+      "follower_ids": [],
+      "email_cc_ids": [],
+      "forum_topic_id": null,
+      "problem_id": null,
+      "has_incidents": false,
+      "is_public": false,
+      "due_at": null,
+      "tags": [],
+      "custom_fields": [
+        {
+          "id": 360015007579,
+          "value": null
+        },
+        {
+          "id": 360015007599,
+          "value": null
+        },
+        {
+          "id": 360015142600,
+          "value": null
+        },
+        {
+          "id": 360015110639,
+          "value": null
+        }
+      ],
+      "satisfaction_rating": {
+        "score": "unoffered"
+      },
+      "sharing_agreement_ids": [],
+      "fields": [
+        {
+          "id": 360015007579,
+          "value": null
+        },
+        {
+          "id": 360015007599,
+          "value": null
+        },
+        {
+          "id": 360015142600,
+          "value": null
+        },
+        {
+          "id": 360015110639,
+          "value": null
+        }
+      ],
+      "followup_ids": [],
+      "ticket_form_id": 360000763199,
+      "brand_id": 360001393519,
+      "allow_channelback": false,
+      "allow_attachments": true,
+      "generated_timestamp": 1610037411
+    }
+  ],
+  "count": 2,
+  "end_of_stream": false,
+  "next_page": "https://d3v-kaizo.zendesk.com/api/v2/incremental/tickets.json?per_page=2&start_time=1610037411",
+  "end_time": 1610037411
+}
+2021-01-04T15:11:04Z
+Expected date time in ISO offset date time format ex. 2022-07-03T09:31:01.289
