@@ -69,10 +69,12 @@ object TicketStream {
               system.log.error(s"couldn't fetch a page: ${value.getMessage}")
               Future(Seq.empty[ZendeskEntity])
             case Right(value) =>
+              system.log.debug(s"Current actor: ${context.self.path.name}")
               value match {
                 case Tickets(tickets, _, _, end_of_stream, currentStreamTime) =>
                   if(end_of_stream){
                     context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id))
+                    context.self ! Poll(currentTimeStamp)
                   }
                   context.self ! CurrentStreamTime(currentStreamTime)
                   Future(tickets)
@@ -98,6 +100,7 @@ object TicketStream {
       case Start =>
         val uri = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime))
         context.self ! CreateStream(uri)
+        context.log.info(s"starting stream for actor: ${context.self.path.name}")
         Behaviors.same
       case CurrentStreamTime(time: Long) =>
         currentTimeStamp = time
@@ -122,3 +125,7 @@ object TicketStream {
 
 
 }
+//d3v-kaizo-stream-actor--1109675513
+
+//d3v-kaizo-stream-actor-2004099955
+//d3v-kaizo-stream-actor--833775612

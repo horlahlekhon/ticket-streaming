@@ -25,7 +25,7 @@ object Application {
   def main(args: Array[String]): Unit = {
     val rootBehavior = Behaviors.setup[Nothing] { context =>
       val baseUrl =  context.system.settings.config.getString("ticketing.app.base-url")
-      val customerRegistryActor = context.spawn(CustomerRegistry(baseUrl), "UserRegistryActor")
+      val customerRegistryActor = context.spawn(CustomerRegistry(baseUrl), "CustomerRegistryActor")
       context.watch(customerRegistryActor)
       val routes = new CustomerRoutes(customerRegistryActor)(context.system)
       startHttpServer(routes.customerRoutes)(context.system)

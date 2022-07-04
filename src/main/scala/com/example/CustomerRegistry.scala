@@ -34,7 +34,7 @@ object CustomerRegistry {
       implicit val ec: ExecutionContextExecutor = context.system.executionContext
       msg match{
         case CreateStream(customer) =>
-          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor-${Random.nextInt()}")
+          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor}")
           context.log.info(s"New customer ${customer.domain} added: new actor created : ${streamActor.toString} creating tickets streaming")
           context.watch(streamActor)
           streamActor ! Start

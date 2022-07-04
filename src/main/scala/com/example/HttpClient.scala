@@ -129,8 +129,9 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   private def rateLimitWatch(headers: Seq[HttpHeader], uri: Uri, data: Option[ZendeskEntity]): Option[RateLimitRetryAfter] = {
     headers.find(_.is("x-rate-limit-remaining")) match {
       case Some(value) =>
+        log.info(s"rate remaining.....: ${value.value()}")
         Try(Integer.parseInt(value.value())).toOption match {
-          case Some(value) if value == 690 => //for some reason the x-rate-limit is 700 while the rate limit calls allowed is 10
+          case Some(value) if value <= 690 => //for some reason the x-rate-limit is 700 while the rate limit calls allowed is 10
             Some(RateLimitRetryAfter(60, uri, data))
           case _ =>
             None
