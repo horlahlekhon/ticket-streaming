@@ -7,6 +7,7 @@ import com.example.TicketStream.Start
 
 import java.time.Duration
 import scala.concurrent.ExecutionContextExecutor
+import scala.util.Random
 
 final case class Customer(domain: String, token: String, startTime: Long)
 import akka.util.Timeout
@@ -33,7 +34,7 @@ object CustomerRegistry {
       implicit val ec: ExecutionContextExecutor = context.system.executionContext
       msg match{
         case CreateStream(customer) =>
-          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor")
+          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor-${Random.nextInt()}")
           context.log.info(s"New customer ${customer.domain} added: new actor created : ${streamActor.toString} creating tickets streaming")
           context.watch(streamActor)
           streamActor ! Start

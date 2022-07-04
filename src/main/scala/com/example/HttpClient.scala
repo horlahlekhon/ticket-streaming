@@ -125,6 +125,7 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   *         uri - Uri of the next request
   *         data - data returned for the current page
   * */
+  //TODO this thing is not predicting the rate limit well.. fix
   private def rateLimitWatch(headers: Seq[HttpHeader], uri: Uri, data: Option[ZendeskEntity]): Option[RateLimitRetryAfter] = {
     headers.find(_.is("x-rate-limit-remaining")) match {
       case Some(value) =>
