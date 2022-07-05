@@ -10,6 +10,7 @@ import akka.stream.scaladsl.Source
 import com.example.CustomerRegistry.CurrentTimeLapse
 
 import java.time.{Duration, Instant, LocalDateTime, OffsetDateTime}
+import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.Try
@@ -29,7 +30,7 @@ case class Audits(audits: Seq[Audit], next_page: Option[String], previous_page: 
   override def data: Seq[TicketingDomain] = audits
 }
 case class AuditCount(count: Int)
-case class RateLimitRetryAfter(seconds: Int, url: Uri, currentPageData:  Option[ZendeskEntity]) extends ZendeskEntity{
+case class RateLimitRetryAfter(url: Uri, currentPageData:  Option[ZendeskEntity]) extends ZendeskEntity{
   override def data: Seq[TicketingDomain] = {
     currentPageData match {
       case Some(value) => value.data
@@ -48,20 +49,23 @@ object TicketStream {
   final case object Start extends Command
   final case class CurrentStreamTime(time: Long) extends Command
   final case class GetCurrentTimeLapse(replyTo: ActorRef[CustomerRegistry.Command]) extends Command
+  final case class Poll(url: Uri, startTime: Long) extends Command
 
   def apply(baseUrl: String, customer: Customer): Behavior[Command] = handle(customer, baseUrl)
 
-  val auditUrl = "https://%s.%s/tickets/%s/audits.json?per_page=100"
-  val ticketsUrl = "https://%s.%s/incremental/tickets.json?start_time=%d&per_page=10"
+  val defaultPerPage = 5
+  val auditUrl = "https://%s.%s/tickets/%s/audits.json?per_page=%d"
+  val ticketsUrl = "https://%s.%s/incremental/tickets.json?start_time=%d&per_page=%d"
+  val defaultPollingTime = 20 // TODO change to env
+  val defaultRequestPerMinute = 7
+  val defaultRatelimitWait = 60
 
-  //TODO implement polling every 5 seconds
-  def handle(customer: Customer, baseUrl: String): Behavior[Command] =
-  Behaviors.receive{(context, msg) =>
+  def handle(customer: Customer, baseUrl: String): Behavior[Command] = Behaviors.setup{context =>
+    var currentTimeStamp: Long = 0L
     implicit val system: ActorSystem[Command] = context.system.asInstanceOf[ActorSystem[Command]]
     import system.executionContext
     implicit val materializer: Dispatchers = context.system.dispatchers
-    var currentTimeStamp: Long = customer.startTime
-    msg match{
+    Behaviors.receiveMessage{
       case ProcessStream(source: Source[Either[Error, ZendeskEntity], NotUsed]) =>
         source
           .mapAsync(3) {
@@ -69,22 +73,20 @@ object TicketStream {
               system.log.error(s"couldn't fetch a page: ${value.getMessage}")
               Future(Seq.empty[ZendeskEntity])
             case Right(value) =>
-              system.log.debug(s"Current actor: ${context.self.path.name}")
               value match {
                 case Tickets(tickets, _, _, end_of_stream, currentStreamTime) =>
                   if(end_of_stream){
-                    context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id))
-                    context.self ! Poll(currentTimeStamp)
+                    context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id, defaultPerPage))
+                    context.self ! Poll(ticketsUrl.format(customer.domain, baseUrl, currentStreamTime, defaultPerPage), currentStreamTime)
                   }
                   context.self ! CurrentStreamTime(currentStreamTime)
                   Future(tickets)
                 case Audits(audits, _, _) =>
                   Future(audits)
-                case RateLimitRetryAfter(seconds, uri, Some(currentPageData)) =>
-                  system.scheduler.scheduleOnce(FiniteDuration.apply(seconds, "seconds"), () => context.self ! CreateStream(uri))
-                  Future(currentPageData.data)
-                case RateLimitRetryAfter(_, _, None) =>
-                  Future(Seq.empty[ZendeskEntity])
+                case RateLimitRetryAfter(uri, currentPageData) =>
+                  system.scheduler.scheduleOnce(FiniteDuration.apply(defaultRatelimitWait, TimeUnit.SECONDS), () => context.self ! CreateStream(uri))
+                  if(currentPageData.isDefined) Future(currentPageData.asInstanceOf[ZendeskEntity].data)
+                  else Future(Seq.empty[ZendeskEntity])
                 case _ => Future(Seq.empty[ZendeskEntity])
               }
           }
@@ -94,11 +96,11 @@ object TicketStream {
       case CreateStream(uri: Uri) =>
         val client = new HttpClient(token = customer.token, entityMapper = converter, log = system.log)
         context.log.info(s"Stream created for customer: ${customer.domain}.. starting request chain with initial uri: ${uri.toString()}")
-        val source = client.makeRequest(Some(uri))
+        val source = client.makeRequest(Some(uri, defaultRequestPerMinute))
         context.self ! ProcessStream(source)
         Behaviors.same
       case Start =>
-        val uri = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime))
+        val uri = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime, defaultPerPage))
         context.self ! CreateStream(uri)
         context.log.info(s"starting stream for actor: ${context.self.path.name}")
         Behaviors.same
@@ -110,10 +112,16 @@ object TicketStream {
         val durationBtw = Duration.between(streamTime, OffsetDateTime.now().toInstant)
         replyTo ! CurrentTimeLapse(durationBtw)
         Behaviors.same
+      case Poll(url, time) =>
+        context.system.scheduler.scheduleOnce(FiniteDuration.apply(defaultPollingTime, TimeUnit.SECONDS), () => context.self ! CreateStream(url))
+        context.log.info(s"Polling for new data at timestamp: ${time} with url $url")
+        Behaviors.same
       case _ =>
         Behaviors.same
     }
   }
+
+
 
   def converter(httpResponse: HttpResponse)(implicit mat: Materializer, executionContext: ExecutionContext): Future[Option[ZendeskEntity]] = {
     Try(Unmarshal(httpResponse).to[ZendeskEntity])
@@ -125,7 +133,4 @@ object TicketStream {
 
 
 }
-//d3v-kaizo-stream-actor--1109675513
-
-//d3v-kaizo-stream-actor-2004099955
-//d3v-kaizo-stream-actor--833775612
+// start 1609459200

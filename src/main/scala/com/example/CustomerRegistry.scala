@@ -25,19 +25,17 @@ object CustomerRegistry {
 
 
 
-  def apply(baseUrl: String): Behavior[Command] = registry(baseUrl)
+  def apply(baseUrl: String)(implicit timeout: Timeout): Behavior[Command] = registry(baseUrl)
 
-  private def registry(baseUrl: String): Behavior[Command] = {
+  private def registry(baseUrl: String)(implicit timeout: Timeout): Behavior[Command] = {
     Behaviors.receive {(context, msg) =>
-      implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("ticketing.routes.ask-timeout"))
-      implicit val scheduler: Scheduler = context.system.scheduler
       implicit val ec: ExecutionContextExecutor = context.system.executionContext
       msg match{
         case CreateStream(customer) =>
-          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor}")
+          val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor")
           context.log.info(s"New customer ${customer.domain} added: new actor created : ${streamActor.toString} creating tickets streaming")
           context.watch(streamActor)
-          streamActor ! Start
+          streamActor ! Start // TODO remove this
           Behaviors.same
         case CreateCustomer(customer, replyTo) =>
           // TODO validate token here, prolly just call a simple endpoint
@@ -51,11 +49,11 @@ object CustomerRegistry {
           }
           Behaviors.same
         case GetCurrentTimeLapse(domain, replyTo) =>
-          val maybeChild = context.children.find(_.asInstanceOf[ActorRef[TicketStream.Command]].path.name == s"${domain}-stream-actor")
+          val maybeChild = context.children.find(_.asInstanceOf[ActorRef[TicketStream.Command]].path.name == s"$domain-stream-actor")
           maybeChild match {
             case Some(value) =>
               val actorRef = value.asInstanceOf[ActorRef[TicketStream.Command]]
-              val res= actorRef.ask(TicketStream.GetCurrentTimeLapse)
+              val res= actorRef.ask(TicketStream.GetCurrentTimeLapse)(timeout, context.system.scheduler)
               res.map {
                 case CurrentTimeLapse(time) =>
                   replyTo ! ActionPerformed(s"time difference between the stream and real time is - ${time.abs().toMinutes} minutes", true)

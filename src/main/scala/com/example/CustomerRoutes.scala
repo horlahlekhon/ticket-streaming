@@ -22,7 +22,6 @@ class CustomerRoutes(customerRegistry: ActorRef[CustomerRegistry.Command])(impli
 
   def getCurrentTimeLapse(domain: String): Future[ActionPerformed] =
     customerRegistry.ask(GetCurrentTimeLapse(domain, _))
-
   val customerRoutes: Route =
     path("customers") {
       post {

@@ -24,12 +24,11 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   import JsonFormats._
 
   val defaultHeaders = List(headers.RawHeader("Authorization", s"Bearer $token"))
-
   /*
   * Returns a Source that emits Option[Seq[GithubEntity]] and can be materialized somewhere..
   * @param: uri: the uri of request to be made
   * */
-  def makeRequest(uri: Option[Uri]): Source[Either[Error, ZendeskEntity], NotUsed] = {
+  def makeRequest(uri: Option[(Uri, Int)]): Source[Either[Error, ZendeskEntity], NotUsed] = {
     Source.unfoldAsync(uri)(paginationChain)
   }
 
@@ -37,10 +36,11 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   * Recursively make requests to a paginated page, given that the pagination
   * details exists in the message body
   * @param uri: An Option of uri of request to be made.*/
-  def paginationChain(uri: Option[Uri]): Future[Option[(Option[Uri], Either[Error, ZendeskEntity])]] = {
+  def paginationChain(requestProps: Option[(Uri, Int)]): Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]] = {
     implicit val ec: ExecutionContext = system.executionContext
-    (uri match {
-      case Some(uri) =>
+    (requestProps match {
+      case Some(uri -> limit) if limit >= 1 =>
+        log.info(s"Making number $limit request of iteration")
         val request = HttpRequest(method = HttpMethods.GET, uri = uri, headers = defaultHeaders)
         Http().singleRequest(request) flatMap { response =>
           response.status match {
@@ -50,7 +50,7 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
                 Some(None -> Left(resp))
               }
             case StatusCodes.OK =>
-              processResponse(response, request)
+              processResponse(response, request -> limit)
             case StatusCodes.TooManyRequests =>
               val headers = response.headers
               tooManyRequests(headers, uri)
@@ -59,7 +59,9 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
               Future.successful(Some(None -> Left(HttpClientException(s"uncaught response returned : $request"))))
           }
         }
-      case None =>
+      case Some(uri -> limit) if limit == 0 =>
+        Future.successful(Some(None -> Right(RateLimitRetryAfter(uri, None))))
+      case _ =>
         Future.successful(None)
     }).recoverWith{
       case e:Exception =>
@@ -68,13 +70,13 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
     }
   }
 
-  private def tooManyRequests(headers: Seq[HttpHeader], uri: Uri): Future[Option[(Option[Uri], Either[Error, ZendeskEntity])]] = {
+  private def tooManyRequests(headers: Seq[HttpHeader], uri: Uri): Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]] = {
     headers.find(_.is("retry-after")) match {
       case Some(value) =>
         Try(Integer.parseInt(value.value())).toOption match {
-          case Some(value) =>
-            log.info(s"rate limit exceeded while. retrying in $value seconds")
-            Future.successful(Some(None, Right(RateLimitRetryAfter(value, uri, None))))
+          case Some(_) =>
+            log.info(s"rate limit exceeded. will retry after some time")
+            Future.successful(Some(None, Right(RateLimitRetryAfter(uri, None))))
           case None =>
             log.error("Invalid state. Unable to parse retry-after time after TooManyRequests aborting without finishing")
             Future.successful(Some(None -> Left(HttpClientException("Invalid state. Unable to parse Retry-after time after TooManyRequests aborting without finishing"))))
@@ -84,20 +86,16 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
         Future.successful(Some(None -> Left(HttpClientException("Invalid state. we got too many request without Retry-after time"))))
     }
   }
-  private def processResponse(response: HttpResponse, request: HttpRequest)(implicit executionContext: ExecutionContext):Future[Option[(Option[Uri], Either[Error, ZendeskEntity])]]  = {
+  private def processResponse(response: HttpResponse, request: (HttpRequest, Int))(implicit executionContext: ExecutionContext):Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]]  = {
     convert(response) map { resp =>
-      log.debug(s"response for request: ${request.uri}: data gotten ${resp}")
+      log.debug(s"response for request: ${request._1.uri}: data gotten ${resp}")
       if(resp._1.isDefined){
-        val rateLimit = rateLimitWatch(response.headers, request.uri,  resp._1)
-        getNextRequest(resp._1.get) match {
-          case Some(request) if rateLimit.isEmpty =>
-            log.debug(s"Not done yet.. Fetching next page.. : ${request.toString()}")
-            Some(Some(request) -> Right(resp._1.get))
-          case Some(value) if rateLimit.isDefined =>
-            log.debug(s"Not done yet, but we  are close to rate limit... continuing to the next page ${request.toString()} in 60 seconds. ")
-            Some(None -> Right(rateLimit.get.copy(url = value)))
+        getNextRequest(resp._1.get, request._2) match {
+          case Some(uri) =>
+            log.debug(s"Not done yet.. Fetching next page.. : ${uri.toString()}")
+            Some(Some(uri) -> Right(resp._1.get))
           case _ =>
-            log.debug(s"no next request found: end of chain: last page data:  ${resp._1.size}")
+            log.debug(s"no next request found: end of chain")
             Some(None -> Right(resp._1.get))
         }
       }else {
@@ -109,36 +107,12 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   /*
   * Determine if there is a next request and return an Option[Uri]
   * @param*/
-  private def getNextRequest(entity: ZendeskEntity): Option[Uri] = entity match {
+  private def getNextRequest(entity: ZendeskEntity, limit: Int): Option[(Uri, Int)] = entity match {
     case tickets: Tickets if !tickets.end_of_stream && tickets.next_page.isDefined =>
-      tickets.next_page.map(Uri(_))
-    case audits: Audits => audits.next_page.map(Uri(_))
+      tickets.next_page.map(Uri(_) -> (limit - 1))
+    case audits: Audits =>
+      audits.next_page.map(Uri(_) -> (limit - 1))
     case _ => None
-  }
-
-  /*
-  * Determine if rate limit is near. the idea is to check the remaining rate limit request and throttle when it is close.
-  * but the implementation of the header itself does not reflect the actual rate limit. for example, tickets endpoint have
-  * a rate limit of 10 requests per minutes. but the rate limit counting starts from 700, so by the time the rate limit
-  * is triggered, the header will still say you can make 690 requests.
-  * Params: headers - headers extracted from the current request.
-  *         uri - Uri of the next request
-  *         data - data returned for the current page
-  * */
-  //TODO this thing is not predicting the rate limit well.. fix
-  private def rateLimitWatch(headers: Seq[HttpHeader], uri: Uri, data: Option[ZendeskEntity]): Option[RateLimitRetryAfter] = {
-    headers.find(_.is("x-rate-limit-remaining")) match {
-      case Some(value) =>
-        log.info(s"rate remaining.....: ${value.value()}")
-        Try(Integer.parseInt(value.value())).toOption match {
-          case Some(value) if value <= 690 => //for some reason the x-rate-limit is 700 while the rate limit calls allowed is 10
-            Some(RateLimitRetryAfter(60, uri, data))
-          case _ =>
-            None
-        }
-      case None =>
-        None
-    }
   }
 
   /*

@@ -19,10 +19,10 @@ object JsonFormats extends DefaultJsonProtocol with SprayJsonSupport {
   implicit val badCredentialsJsonFormat = jsonFormat1(BadCredentials)
 
 
-  implicit val localDateTimeFormat =  new JsonFormat[OffsetDateTime] {
+  implicit val dateTimeFormat =  new JsonFormat[OffsetDateTime] {
     override def write(obj: OffsetDateTime): JsValue = JsString(obj.toString)
     private val deserializationErrorMessage =
-      s"Expected date time in ISO offset date time format ex. ${OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)}"
+      s"Expected date time in ISO offset date time format example. ${OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)}"
     override def read(json: JsValue): OffsetDateTime = {
       json match {
         case JsString(value) =>

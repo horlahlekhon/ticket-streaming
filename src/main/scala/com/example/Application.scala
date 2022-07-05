@@ -4,6 +4,7 @@ import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
+import akka.util.Timeout
 
 import scala.util.Failure
 import scala.util.Success
@@ -25,6 +26,7 @@ object Application {
   def main(args: Array[String]): Unit = {
     val rootBehavior = Behaviors.setup[Nothing] { context =>
       val baseUrl =  context.system.settings.config.getString("ticketing.app.base-url")
+      implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("ticketing.routes.ask-timeout"))
       val customerRegistryActor = context.spawn(CustomerRegistry(baseUrl), "CustomerRegistryActor")
       context.watch(customerRegistryActor)
       val routes = new CustomerRoutes(customerRegistryActor)(context.system)
