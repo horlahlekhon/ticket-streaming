@@ -2,12 +2,10 @@ package com.example
 
 import akka.NotUsed
 import akka.actor.typed.ActorSystem
-import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.Materializer
 import akka.stream.scaladsl.Source
-import com.example.TicketStream.Command
 import org.slf4j.Logger
 
 import scala.collection.{Seq, immutable}
@@ -20,7 +18,7 @@ case class HttpClientException(msg: String) extends  Error{
 
 case class BadCredentials(error: String) extends Error
 
-class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], token: String, log: Logger)(implicit materializer: Materializer, system: ActorSystem[Command])  {
+class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], token: String, server: HttpRequestSender, log: Logger)(implicit materializer: Materializer, system: ActorSystem[_])  {
   import JsonFormats._
 
   val defaultHeaders = List(headers.RawHeader("Authorization", s"Bearer $token"))
@@ -39,10 +37,10 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   def paginationChain(requestProps: Option[(Uri, Int)]): Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]] = {
     implicit val ec: ExecutionContext = system.executionContext
     (requestProps match {
-      case Some(uri -> limit) if limit >= 1 =>
+      case Some(uri -> limit) if limit > 1 =>
         log.info(s"Making number $limit request of iteration")
         val request = HttpRequest(method = HttpMethods.GET, uri = uri, headers = defaultHeaders)
-        Http().singleRequest(request) flatMap { response =>
+          server.sendRequest(request) flatMap { response =>
           response.status match {
             case StatusCodes.Unauthorized =>
              Unmarshal(response).to[BadCredentials].map { resp =>
@@ -59,13 +57,13 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
               Future.successful(Some(None -> Left(HttpClientException(s"uncaught response returned : $request"))))
           }
         }
-      case Some(uri -> limit) if limit == 0 =>
+      case Some(uri -> limit) if limit == 1 =>
         Future.successful(Some(None -> Right(RateLimitRetryAfter(uri, None))))
       case _ =>
         Future.successful(None)
     }).recoverWith{
       case e:Exception =>
-        log.error(s"An unexpected error occured while processing requests caused by ${e.getCause}. message:  ${e.getMessage}")
+        log.error(s"An unexpected error occurred while processing requests caused by ${e.getCause}. message:  ${e.getMessage}")
         Future.failed(e)
     }
   }
@@ -86,7 +84,7 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
         Future.successful(Some(None -> Left(HttpClientException("Invalid state. we got too many request without Retry-after time"))))
     }
   }
-  private def processResponse(response: HttpResponse, request: (HttpRequest, Int))(implicit executionContext: ExecutionContext):Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]]  = {
+  def processResponse(response: HttpResponse, request: (HttpRequest, Int))(implicit executionContext: ExecutionContext):Future[Option[(Option[(Uri, Int)], Either[Error, ZendeskEntity])]]  = {
     convert(response) map { resp =>
       log.debug(s"response for request: ${request._1.uri}: data gotten ${resp}")
       if(resp._1.isDefined){
@@ -107,7 +105,7 @@ class HttpClient(entityMapper: HttpResponse => Future[Option[ZendeskEntity]], to
   /*
   * Determine if there is a next request and return an Option[Uri]
   * @param*/
-  private def getNextRequest(entity: ZendeskEntity, limit: Int): Option[(Uri, Int)] = entity match {
+  def getNextRequest(entity: ZendeskEntity, limit: Int): Option[(Uri, Int)] = entity match {
     case tickets: Tickets if !tickets.end_of_stream && tickets.next_page.isDefined =>
       tickets.next_page.map(Uri(_) -> (limit - 1))
     case audits: Audits =>

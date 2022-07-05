@@ -3,17 +3,19 @@ package com.example
 import akka.NotUsed
 import akka.actor.typed.{ActorRef, ActorSystem, Behavior, Dispatchers}
 import akka.actor.typed.scaladsl.Behaviors
-import akka.http.scaladsl.model.{HttpResponse, Uri}
+import akka.http.scaladsl.model.{HttpResponse, Uri, headers}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.Materializer
+import akka.stream.scaladsl.Sink
 import akka.stream.scaladsl.Source
 import com.example.CustomerRegistry.CurrentTimeLapse
 
+import java.io.FileOutputStream
 import java.time.{Duration, Instant, LocalDateTime, OffsetDateTime}
 import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future, Promise}
-import scala.util.Try
+import scala.util.{Try, Using}
 
 trait TicketingDomain
 
@@ -39,8 +41,6 @@ case class RateLimitRetryAfter(url: Uri, currentPageData:  Option[ZendeskEntity]
   }
 }
 
-
-
 object TicketStream {
   import JsonFormats._
   sealed trait Command
@@ -50,51 +50,37 @@ object TicketStream {
   final case class CurrentStreamTime(time: Long) extends Command
   final case class GetCurrentTimeLapse(replyTo: ActorRef[CustomerRegistry.Command]) extends Command
   final case class Poll(url: Uri, startTime: Long) extends Command
-
+  final case class StreamData(data: ZendeskEntity) extends Command
   def apply(baseUrl: String, customer: Customer): Behavior[Command] = handle(customer, baseUrl)
-
-  val defaultPerPage = 5
   val auditUrl = "https://%s.%s/tickets/%s/audits.json?per_page=%d"
   val ticketsUrl = "https://%s.%s/incremental/tickets.json?start_time=%d&per_page=%d"
-  val defaultPollingTime = 20 // TODO change to env
-  val defaultRequestPerMinute = 7
-  val defaultRatelimitWait = 60
 
   def handle(customer: Customer, baseUrl: String): Behavior[Command] = Behaviors.setup{context =>
     var currentTimeStamp: Long = 0L
     implicit val system: ActorSystem[Command] = context.system.asInstanceOf[ActorSystem[Command]]
     import system.executionContext
     implicit val materializer: Dispatchers = context.system.dispatchers
+    val defaultPerPage = system.settings.config.getInt("ticketing.app.default-data-per-page")
+
+    val defaultPollingTime = system.settings.config.getInt("ticketing.app.default-polling-time")
+    val defaultRequestPerMinute = system.settings.config.getInt("ticketing.app.default-request-per-minute")
+    val defaultRateLimitWait = system.settings.config.getInt("ticketing.app.default-rate-limit-wait")
+
     Behaviors.receiveMessage{
       case ProcessStream(source: Source[Either[Error, ZendeskEntity], NotUsed]) =>
         source
           .mapAsync(3) {
             case Left(value) =>
               system.log.error(s"couldn't fetch a page: ${value.getMessage}")
-              Future(Seq.empty[ZendeskEntity])
+              Future.successful(())
             case Right(value) =>
-              value match {
-                case Tickets(tickets, _, _, end_of_stream, currentStreamTime) =>
-                  if(end_of_stream){
-                    context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id, defaultPerPage))
-                    context.self ! Poll(ticketsUrl.format(customer.domain, baseUrl, currentStreamTime, defaultPerPage), currentStreamTime)
-                  }
-                  context.self ! CurrentStreamTime(currentStreamTime)
-                  Future(tickets)
-                case Audits(audits, _, _) =>
-                  Future(audits)
-                case RateLimitRetryAfter(uri, currentPageData) =>
-                  system.scheduler.scheduleOnce(FiniteDuration.apply(defaultRatelimitWait, TimeUnit.SECONDS), () => context.self ! CreateStream(uri))
-                  if(currentPageData.isDefined) Future(currentPageData.asInstanceOf[ZendeskEntity].data)
-                  else Future(Seq.empty[ZendeskEntity])
-                case _ => Future(Seq.empty[ZendeskEntity])
-              }
-          }
-          .mapConcat(identity)
-          .runForeach(e => println(e))
+              context.self ! StreamData(value)
+              Future.successful(())
+          }.run()
         Behaviors.same
       case CreateStream(uri: Uri) =>
-        val client = new HttpClient(token = customer.token, entityMapper = converter, log = system.log)
+        val server = HttpServer()
+        val client = new HttpClient(entityMapper = converter, customer.token, server, log = system.log)
         context.log.info(s"Stream created for customer: ${customer.domain}.. starting request chain with initial uri: ${uri.toString()}")
         val source = client.makeRequest(Some(uri, defaultRequestPerMinute))
         context.self ! ProcessStream(source)
@@ -114,14 +100,29 @@ object TicketStream {
         Behaviors.same
       case Poll(url, time) =>
         context.system.scheduler.scheduleOnce(FiniteDuration.apply(defaultPollingTime, TimeUnit.SECONDS), () => context.self ! CreateStream(url))
-        context.log.info(s"Polling for new data at timestamp: ${time} with url $url")
+        context.log.info(s"Polling for new data at timestamp: ${time} with url $url in $defaultPollingTime seconds ")
+        Behaviors.same
+      case StreamData(data) =>
+        data match {
+          case Tickets(tickets, _, _, end_of_stream, currentStreamTime) =>
+            if(end_of_stream){
+              context.self ! CreateStream(auditUrl.format(customer.domain, baseUrl, tickets.head.id, defaultPerPage))
+              context.self ! Poll(ticketsUrl.format(customer.domain, baseUrl, currentStreamTime, defaultPerPage), currentStreamTime)
+            }
+            context.self ! CurrentStreamTime(currentStreamTime)
+            tickets.foreach(data => println(s"Ticket: \t<Domain = ${customer.domain}, ticketId = ${data.id}, created_at = ${data.created_at}, updated_at = ${data.updated_at}>\n"))
+          case Audits(audits, _, _) =>
+            audits.foreach(data => println(s"Audit: \t <Ticket = ${data.ticket_id}, id = ${data.id}, created_at = ${data.created_at}\n"))
+          case RateLimitRetryAfter(uri, currentPageData) =>
+            context.log.info(s"Rate limit exceeded, retrying again in $defaultRateLimitWait seconds")
+            system.scheduler.scheduleOnce(FiniteDuration.apply(defaultRateLimitWait, TimeUnit.SECONDS), () => context.self ! CreateStream(uri))
+            if(currentPageData.isDefined) context.self ! StreamData(currentPageData.asInstanceOf[ZendeskEntity])
+        }
         Behaviors.same
       case _ =>
         Behaviors.same
     }
   }
-
-
 
   def converter(httpResponse: HttpResponse)(implicit mat: Materializer, executionContext: ExecutionContext): Future[Option[ZendeskEntity]] = {
     Try(Unmarshal(httpResponse).to[ZendeskEntity])
@@ -130,7 +131,4 @@ object TicketStream {
         fb => fb.map(Some(_))
       )
   }
-
-
 }
-// start 1609459200

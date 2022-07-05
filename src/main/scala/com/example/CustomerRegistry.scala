@@ -35,10 +35,9 @@ object CustomerRegistry {
           val streamActor =   context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor")
           context.log.info(s"New customer ${customer.domain} added: new actor created : ${streamActor.toString} creating tickets streaming")
           context.watch(streamActor)
-          streamActor ! Start // TODO remove this
+          streamActor ! Start
           Behaviors.same
         case CreateCustomer(customer, replyTo) =>
-          // TODO validate token here, prolly just call a simple endpoint
           val children = context.children.find(_.asInstanceOf[ActorRef[TicketStream.Command]].path.name == s"${customer.domain}-stream-actor")
           children match {
             case Some(_) =>
