@@ -25,9 +25,8 @@ object Application {
   }
   def main(args: Array[String]): Unit = {
     val rootBehavior = Behaviors.setup[Nothing] { context =>
-      val baseUrl =  context.system.settings.config.getString("ticketing.app.base-url")
       implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("ticketing.routes.ask-timeout"))
-      val customerRegistryActor = context.spawn(CustomerRegistry(baseUrl), "CustomerRegistryActor")
+      val customerRegistryActor = context.spawn(CustomerRegistry(timeout), "CustomerRegistryActor")
       context.watch(customerRegistryActor)
       val routes = new CustomerRoutes(customerRegistryActor)(context.system)
       startHttpServer(routes.customerRoutes)(context.system)

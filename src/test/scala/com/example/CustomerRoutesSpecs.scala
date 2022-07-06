@@ -22,7 +22,7 @@ class CustomerRoutesSpecs  extends AsyncWordSpec with Matchers with ScalatestRou
   val baseUrl =  system.settings.config.getString("ticketing.app.base-url")
   implicit val timeout: Timeout = Timeout.create(system.settings.config.getDuration("ticketing.routes.ask-timeout"))
 
-  val registry = testKit.spawn(CustomerRegistry(baseUrl))
+  val registry = testKit.spawn(CustomerRegistry(timeout))
   val routes = new CustomerRoutes(registry)(typedSystem)
 
   "POST /customers" should {

@@ -18,15 +18,12 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 class TicketStreamSpecs extends
-//  ScalaTestWithActorTestKit
    AnyWordSpecLike with Matchers with ScalatestRouteTest with BeforeAndAfterAll{
 
-//  override def testKitSettings: TestKitSettings = TestKitSettings(ConfigFactory.parseFile(new File("src/test/resources/application-test.conf")))
   val baseUrl = "zendesk.com/api/v2"
   implicit val timeout: Timeout = Timeout.apply(15, TimeUnit.SECONDS)
   val defaultPerPage = 5
    val testKit = ActorTestKit()
-//  override implicit def system = testKit.system.classicSystem
   implicit def typedSystem = testKit.system
   "TicketStream" should {
     "Create http request stream when CreateStream message is received" in {
@@ -46,7 +43,7 @@ class TicketStreamSpecs extends
       testKit.run(Start)
       val im = testKit.selfInbox()
       val url = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime, defaultPerPage))
-      im.expectMessage(CreateStream(url))
+      im.expectMessage(Start)
     }
   }
 

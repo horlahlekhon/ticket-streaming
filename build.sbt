@@ -6,7 +6,10 @@ lazy val akkaVersion    = "2.6.19"
 // If you want to keep the application running while executing other
 // sbt tasks, consider https://github.com/spray/sbt-revolver/
 fork := true
-
+scalacOptions ++= Seq(
+  "-deprecation",
+  "-feature"
+)
 lazy val root = (project in file(".")).
   settings(
     inThisBuild(List(
