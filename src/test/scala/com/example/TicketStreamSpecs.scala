@@ -32,14 +32,15 @@ class TicketStreamSpecs extends
       probe.expectMessageType[TicketStream.Start.type]
     }
     "Return the timelapse when message GetCurrentTimeLapse is received" in {
-      val ticket = testKit.spawn(TicketStream(baseUrl, Customer("lekan", "token", 778828)))
       val probe = testKit.createTestProbe[CustomerRegistry.Command]
+      val ticket = testKit.spawn(TicketStream(baseUrl, Customer("lekan", "token", 778828), probe.ref))
       ticket ! GetCurrentTimeLapse(probe.ref)
       probe.expectMessageType[CurrentTimeLapse]
     }
     "CreateStream when start is receieved" in  {
       val customer = Customer("lekan", "token", 778828)
-      val testKit = BehaviorTestKit(TicketStream(baseUrl,  customer))
+      val parent = BehaviorTestKit(CustomerRegistry(timeout))
+      val testKit = BehaviorTestKit(TicketStream(baseUrl,  customer, parent.ref))
       testKit.run(Start)
       val im = testKit.selfInbox()
       val url = Uri(ticketsUrl.format(customer.domain, baseUrl, customer.startTime, defaultPerPage))

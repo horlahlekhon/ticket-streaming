@@ -1,14 +1,14 @@
 package com.example
 
 import akka.NotUsed
-import akka.actor.typed.{ActorRef, ActorSystem, Behavior, Dispatchers, PostStop, SupervisorStrategy}
+import akka.actor.typed.{ActorRef, ActorSystem, Behavior, Dispatchers, PostStop, PreRestart, SupervisorStrategy}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.model.{HttpResponse, Uri, headers}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.Materializer
 import akka.stream.scaladsl.Sink
 import akka.stream.scaladsl.Source
-import com.example.CustomerRegistry.CurrentTimeLapse
+import com.example.CustomerRegistry.{CurrentTimeLapse, RestartTicketStream}
 
 import java.io.FileOutputStream
 import java.time.{Duration, Instant, LocalDateTime, OffsetDateTime}
@@ -50,11 +50,11 @@ object TicketStream {
   final case class GetCurrentTimeLapse(replyTo: ActorRef[CustomerRegistry.Command]) extends Command
   final case class Poll(url: Uri, startTime: Long) extends Command
   final case class StreamData(data: ZendeskEntity) extends Command
-  def apply(baseUrl: String, customer: Customer): Behavior[Command] = handle(customer, baseUrl)
+  def apply(baseUrl: String, customer: Customer, parent: ActorRef[CustomerRegistry.Command]): Behavior[Command] = handle(customer, baseUrl, parent)
   val auditUrl = "https://%s.%s/tickets/%s/audits.json?per_page=%d"
   val ticketsUrl = "https://%s.%s/incremental/tickets.json?start_time=%d&per_page=%d"
 
-  def handle(customer: Customer, baseUrl: String): Behavior[Command] = Behaviors.setup{context =>
+  def handle(customer: Customer, baseUrl: String, parent: ActorRef[CustomerRegistry.Command]): Behavior[Command] = Behaviors.setup{context =>
     var currentTimeStamp: Long = 0L
     implicit val system: ActorSystem[Command] = context.system.asInstanceOf[ActorSystem[Command]]
     import system.executionContext
@@ -123,13 +123,17 @@ object TicketStream {
           Behaviors.same
       }.receiveSignal {
         case (context, PostStop) =>
-          context.log.info(s"Actor ${context.self.path} stopped due to an error")
-          Behaviors.same
+          context.log.info(s"Actor ${context.self.path} stopped due to an error...")
+          Behaviors.stopped
+        case (_, PreRestart) =>
+          context.log.info("restarting actor")
+          parent ! RestartTicketStream(customer)
+          Behaviors.stopped
       }
-    }.onFailure(SupervisorStrategy.restartWithBackoff(
-      FiniteDuration(5, TimeUnit.SECONDS), FiniteDuration(20, TimeUnit.SECONDS), 0.2
-    ).withMaxRestarts(5)
-    )
+       }.onFailure(SupervisorStrategy.restartWithBackoff(
+         FiniteDuration(5, TimeUnit.SECONDS), FiniteDuration(20, TimeUnit.SECONDS), 0.2
+       ).withMaxRestarts(2)
+       )
   }
 
   def converter(httpResponse: HttpResponse)(implicit mat: Materializer, executionContext: ExecutionContext): Future[Option[ZendeskEntity]] = {

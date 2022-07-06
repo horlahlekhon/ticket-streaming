@@ -5,7 +5,7 @@ import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 import akka.actor.typed._
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, StatusCodes, headers}
-import com.example.TicketStream.ticketsUrl
+import com.example.TicketStream.{Start, ticketsUrl}
 
 import java.time.Duration
 import java.util.concurrent.TimeUnit
@@ -25,6 +25,7 @@ object CustomerRegistry {
   final case class GetCurrentTimeLapse(domain: String, replyTo: ActorRef[ActionPerformed]) extends Command
   final case class GetCustomerStreamResponse(maybeUser: Option[Customer])
   final case class ActionPerformed(description: String, success: Boolean)
+  final case class RestartTicketStream(customer: Customer) extends Command
 
 
   val baseUrl = "zendesk.com/api/v2"
@@ -50,14 +51,16 @@ object CustomerRegistry {
 
   def behave(implicit context: ActorContext[Command], executionContext: ExecutionContext, timeout: Timeout): PartialFunction[Command, Behavior[Command]] = {
     case CreateStream(ref) =>
+      ref ! Start
       Behaviors.same
     case CreateCustomer(customer, replyTo) =>
+      //TODO validate customer token here
       val children = context.children.find(_.asInstanceOf[ActorRef[TicketStream.Command]].path.name == s"${customer.domain}-stream-actor")
       children match {
         case Some(_) =>
           replyTo ! ActionPerformed(s"Invalid domain already exist", success = false)
         case None =>
-          val streamActor = context.spawn(TicketStream(baseUrl, customer), s"${customer.domain}-stream-actor")
+          val streamActor = context.spawn(TicketStream(baseUrl, customer, context.self), s"${customer.domain}-stream-actor")
           context.log.info(s"New customer ${customer.domain} added: new actor created : ${streamActor.toString} creating tickets streaming")
           context.watch(streamActor)
           replyTo ! ActionPerformed(s"Customer ${customer.domain} created.", success = true)
@@ -78,6 +81,18 @@ object CustomerRegistry {
           }
         case None =>
           replyTo ! ActionPerformed("Unknown domain, please enter a valid domain", false)
+      }
+      Behaviors.same
+    case RestartTicketStream(customer) =>
+      context.log.error(s"Ticket streaming actor for ${customer.domain} failed... trying to  restarting the stream")
+      val ref = context.children
+        .find(_.asInstanceOf[ActorRef[TicketStream.Command]].path.name == s"${customer.domain}-stream-actor")
+        .map(_.asInstanceOf[ActorRef[TicketStream.Command]])
+      ref match {
+        case Some(value) =>
+          value ! Start
+        case None =>
+          context.log.warn("For some reason we cannot find the failed and restarted actor.. moving on")
       }
       Behaviors.same
     case _ => Behaviors.same
